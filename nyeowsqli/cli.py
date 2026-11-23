@@ -16,12 +16,14 @@ from .detectors import Detector, Finding
 from .http_client import HttpClient, KillSwitch, ScanStopped, parse_headers
 from .legal import confirm_authorization, show_banner
 from .payloads import BOOLEAN_PAIRS, ERROR_PAYLOADS, TIME_PAYLOADS
+from .reporter import write_reports
 from .scanner import ScanResult, Scanner
 from .scope import Scope, ScopeError, build_scope, resolve_warning
 
 # Safe default: the local DVWA lab (official docker-compose publishes it on 4280).
 DEFAULT_TARGET = "http://127.0.0.1:4280/"
 TECHNIQUES = ("error", "boolean", "time")
+FORMATS = ("json", "html")
 
 EXAMPLES = """examples:
   # scan the local DVWA lab (default target), logged-in session cookie required
@@ -121,6 +123,9 @@ def validate_args(parser: argparse.ArgumentParser, args) -> None:
         args.headers = parse_headers(args.header)
     except ValueError as exc:
         parser.error(str(exc))
+    args.formats = [f.strip().lower() for f in args.format.split(",") if f.strip()]
+    if not args.formats or any(f not in FORMATS for f in args.formats):
+        parser.error(f"--format must be a comma-separated list of: {', '.join(FORMATS)}")
     # A sleeping request must not hit the per-request timeout before it returns.
     args.timeout = max(args.timeout, args.time_delay + 5)
 
@@ -193,7 +198,9 @@ def run_scan(console: Console, args, scope: Scope) -> int:
         client.close()
         result.finished = result.finished or datetime.now()
         result.requests_sent = client.requests_sent
-    show_summary(console, result, run_dir)
+    # Always runs - including after Ctrl+C - so a partial scan still leaves a report.
+    reports = write_reports(result, run_dir, args.formats)
+    show_summary(console, result, run_dir, reports)
     return 130 if "Ctrl+C" in result.status else 0
 
 
@@ -231,7 +238,7 @@ def print_finding(console: Console, finding: Finding) -> None:
                   f"    evidence: {escape(finding.evidence)}")
 
 
-def show_summary(console: Console, result: ScanResult, run_dir: Path) -> None:
+def show_summary(console: Console, result: ScanResult, run_dir: Path, reports: list[Path]) -> None:
     colour = "green" if result.status == "completed" else "yellow"
     console.print(f"\n[bold]Scan {result.status}[/bold]", style=colour)
     console.print(f"  {len(result.points)} endpoint(s), {result.params_tested} parameter(s) tested, "
@@ -245,6 +252,8 @@ def show_summary(console: Console, result: ScanResult, run_dir: Path) -> None:
         console.print(table)
     else:
         console.print("  [green]No SQL injection found in the tested parameters.[/green]")
+    for path in reports:
+        console.print(f"  Report   : {path}")
     console.print(f"  Audit log: {run_dir / 'audit.log'}")
 
 
