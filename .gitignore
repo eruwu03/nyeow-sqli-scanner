@@ -221,3 +221,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# NYEOWSQLiSCANNER scan results (may contain target details - never commit)
+output/
+*.log
