@@ -13,6 +13,7 @@ fingerprints the database, **without extracting, modifying or deleting any data*
 | **Language** | Python 3.10+ |
 | **Interface** | Command line (`argparse` + `rich`) |
 | **Output** | Terminal summary, JSON report, HTML report, request audit log |
+| **Team** | NYEOWSQLiSCANNER |
 | **License** | MIT |
 
 ![Scan of the local DVWA lab](docs/screenshots/scan.svg)
@@ -414,4 +415,4 @@ nyeow-sqli-scanner/
 
 ## License
 
-Released under the [MIT License](LICENSE).
+Released under the [MIT License](LICENSE) by Team NYEOWSQLiSCANNER.
