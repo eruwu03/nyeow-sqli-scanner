@@ -35,7 +35,7 @@ You may ONLY scan systems you own, or systems for which you hold
 [bold]explicit written authorization[/bold] from the owner. The authors accept no
 liability for misuse. This tool is detection-only and does not extract data."""
 
-CONFIRM_PHRASE = "I AGREE"
+CONFIRM_PHRASE = "AGREE"
 
 
 def show_banner(console: Console) -> None:

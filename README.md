@@ -74,7 +74,7 @@ flowchart TD
     B --> C{Target inside scope?}
     C -- no --> X[Refuse and exit]
     C -- yes --> D[Show legal disclaimer]
-    D --> E{User typed I AGREE?}
+    D --> E{User typed AGREE?}
     E -- no --> X
     E -- yes --> F{Non-local scope?}
     F -- yes --> G{Host re-typed correctly?}
@@ -261,7 +261,7 @@ Each guardrail exists for a specific reason:
 
 | Guardrail | Why |
 |---|---|
-| **Legal disclaimer + typed `I AGREE`** | Makes the user consciously confirm authorization. A non-interactive run refuses unless `--accept-disclaimer` is passed explicitly. |
+| **Legal disclaimer + typed `AGREE`** | Makes the user consciously confirm authorization. A non-interactive run refuses unless `--accept-disclaimer` is passed explicitly. |
 | **Safe default target (127.0.0.1)** | Running the tool with no arguments can only hit the local lab. |
 | **Default scope = the target host only** | Without `--scope`, the scan cannot wander to other machines, even other lab hosts. |
 | **Non-local targets need `--scope` and the hostname re-typed** | A public target cannot be scanned by a typo or by copy-pasting a command. `--accept-disclaimer` cannot skip this step. |
