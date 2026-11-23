@@ -59,7 +59,7 @@ fingerprints the database, **without extracting, modifying or deleting any data*
 
 **Safety**
 - Startup legal disclaimer (Computer Crimes Act 1997) with typed confirmation.
-- Safe default target (`http://127.0.0.1:4280/`, the local DVWA lab).
+- Safe default target (`http://127.0.0.1/`, the local machine only).
 - Scope enforcement on **every** request, including redirects and crawled links.
 - Kill switch (Ctrl+C), request cap, time cap, rate limit and dry-run mode.
 - Dangerous pages (logout, setup, reset, delete...) and password forms are never touched.
@@ -143,7 +143,7 @@ python -m nyeowsqli --help
 ## Setting up the test lab (DVWA)
 
 Only scan your own lab. The official DVWA Docker setup listens on `127.0.0.1:4280`,
-which is the tool's default target.
+so pass `-u http://127.0.0.1:4280/` (the tool's default is `http://127.0.0.1/`, port 80).
 
 ```bash
 git clone https://github.com/digininja/DVWA.git
@@ -176,7 +176,7 @@ python -m nyeowsqli [-u URL] [--scope SCOPE] [--cookie COOKIE] [-H 'Name: value'
 
 | Option | Default | Description |
 |---|---|---|
-| `-u, --url` | `http://127.0.0.1:4280/` | Start URL |
+| `-u, --url` | `http://127.0.0.1/` | Start URL |
 | `--scope` | target host only | Authorized hosts, `*.domain` or CIDR ranges (required for non-local targets) |
 | `--cookie` | none | Session cookie string |
 | `-H, --header` | none | Extra header, repeatable |
@@ -197,8 +197,8 @@ python -m nyeowsqli [-u URL] [--scope SCOPE] [--cookie COOKIE] [-H 'Name: value'
 ### Examples
 
 ```bash
-# 1. Crawl and scan the local DVWA lab (default target)
-python -m nyeowsqli --cookie "PHPSESSID=abc123; security=low"
+# 1. Crawl and scan the local DVWA lab
+python -m nyeowsqli -u http://127.0.0.1:4280/ --cookie "PHPSESSID=abc123; security=low"
 
 # 2. Test a single URL without crawling
 python -m nyeowsqli -u "http://127.0.0.1:4280/vulnerabilities/sqli/?id=1&Submit=Submit" \

@@ -20,14 +20,14 @@ from .reporter import write_reports
 from .scanner import ScanResult, Scanner
 from .scope import Scope, ScopeError, build_scope, resolve_warning
 
-# Safe default: the local DVWA lab (official docker-compose publishes it on 4280).
-DEFAULT_TARGET = "http://127.0.0.1:4280/"
+# Safe default: this machine only. Use -u to point at the lab's port.
+DEFAULT_TARGET = "http://127.0.0.1/"
 TECHNIQUES = ("error", "boolean", "time")
 FORMATS = ("json", "html")
 
 EXAMPLES = """examples:
-  # scan the local DVWA lab (default target), logged-in session cookie required
-  python -m nyeowsqli --cookie "PHPSESSID=abc123; security=low"
+  # crawl and scan the local DVWA lab, logged-in session cookie required
+  python -m nyeowsqli -u http://127.0.0.1:4280/ --cookie "PHPSESSID=abc123; security=low"
 
   # test one URL only, no crawling
   python -m nyeowsqli -u "http://127.0.0.1:4280/vulnerabilities/sqli/?id=1&Submit=Submit" \\
