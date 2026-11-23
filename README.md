@@ -26,13 +26,14 @@ fingerprints the database, **without extracting, modifying or deleting any data*
 3. [Attack lifecycle mapping](#attack-lifecycle-mapping)
 4. [Installation](#installation)
 5. [Usage](#usage)
-6. [Output and data handling](#output-and-data-handling)
-7. [Ethical considerations](#ethical-considerations)
-8. [Rules of Engagement (RoE)](#rules-of-engagement-roe)
-9. [Responsible disclosure](#responsible-disclosure)
-10. [Legal disclaimer](#legal-disclaimer)
-11. [Limitations](#limitations)
-12. [Project structure](#project-structure)
+6. [Tested against](#tested-against)
+7. [Output and data handling](#output-and-data-handling)
+8. [Ethical considerations](#ethical-considerations)
+9. [Rules of Engagement (RoE)](#rules-of-engagement-roe)
+10. [Responsible disclosure](#responsible-disclosure)
+11. [Legal disclaimer](#legal-disclaimer)
+12. [Limitations](#limitations)
+13. [Project structure](#project-structure)
 
 ---
 
@@ -40,28 +41,36 @@ fingerprints the database, **without extracting, modifying or deleting any data*
 
 **Detection**
 - **Error-based detection**: injects syntax-breaking characters and matches the response
-  against 20+ database error signatures. Also fingerprints the DBMS (MySQL/MariaDB,
-  PostgreSQL, Microsoft SQL Server, SQLite, Oracle).
+  against 30+ database and framework error signatures (raw DB messages plus ORM/driver
+  errors such as Sequelize, PDO, JDBC and Django). Also fingerprints the DBMS
+  (MySQL/MariaDB, PostgreSQL, Microsoft SQL Server, SQLite, Oracle).
 - **Boolean-based blind detection**: sends an always-TRUE and an always-FALSE condition
   with random numbers and compares both against the original page using a similarity
   ratio. The threshold adapts to how "noisy" each page naturally is, and every hit must
   repeat in a second confirmation round.
 - **Time-based blind detection**: asks the database to sleep and confirms with a
   three-step check (`SLEEP(d)` slow → `SLEEP(0)` fast → `SLEEP(d)` slow again), so a
-  slow network is not mistaken for a vulnerability.
+  slow network is not mistaken for a vulnerability. Uses a sleep-once subquery so it also
+  works on fields whose original value matches nothing (e.g. login usernames).
 - **Baseline comparison**: every technique compares against the response to the
   original value, which removes false positives from pages that always look the same.
 
 **Discovery**
-- Breadth-first crawler for links and forms (GET by default, POST with `--post`).
+- Breadth-first crawler for links (`<a>`, `<area>`, `<frame>`, `<iframe>`) and forms
+  (GET by default, POST with `--post`, login forms with `--login-forms`).
+- `--data` tests a single POST request with a **form or JSON body**, for REST APIs and
+  JavaScript apps that have no HTML forms to crawl.
 - Session support via `--cookie` and custom headers via `-H`.
+
+**Works with any intentionally vulnerable app**: nothing is hard-coded for a specific
+target. See [Tested against](#tested-against).
 
 **Safety**
 - Startup legal disclaimer (Computer Crimes Act 1997) with typed confirmation.
 - Safe default target (`http://127.0.0.1/`, the local machine only).
 - Scope enforcement on **every** request, including redirects and crawled links.
 - Kill switch (Ctrl+C), request cap, time cap, rate limit and dry-run mode.
-- Dangerous pages (logout, setup, reset, delete...) and password forms are never touched.
+- Dangerous pages (logout, setup, reset, delete...) and change-password forms are never touched.
 
 ---
 
@@ -217,6 +226,8 @@ python -m nyeowsqli [-u URL] [--scope SCOPE] [--cookie COOKIE] [-H 'Name: value'
 | `--depth` | `2` | Crawl depth |
 | `--no-crawl` | off | Test only the start URL |
 | `--post` | off | Also test POST forms |
+| `--login-forms` | off | Also test login forms (one password field) |
+| `--data` | none | Test one POST request with this form (`a=1&b=2`) or JSON (`{"a":"1"}`) body |
 | `--exclude` | built-in list | Extra regex of URLs to skip |
 | `--techniques` | all | `error`, `boolean`, `time` |
 | `--time-delay` | `5` | Seconds used by time-based payloads (1-30) |
@@ -245,7 +256,17 @@ python -m nyeowsqli -u "http://127.0.0.1:4280/vulnerabilities/sqli_blind/?id=1&S
 # 4. Preview what would be sent, without sending anything
 python -m nyeowsqli -u "http://127.0.0.1:4280/vulnerabilities/sqli/?id=1" --no-crawl --dry-run
 
-# 5. Authorized non-local target (written permission required, interactive confirmation)
+# 5. Crawl everything including POST and login forms (e.g. sqli-labs)
+python -m nyeowsqli -u http://127.0.0.1:8080/ --post --login-forms
+
+# 6. A JSON API endpoint (e.g. OWASP Juice Shop login)
+python -m nyeowsqli -u http://127.0.0.1:3000/rest/user/login \
+    --data '{"email":"test@juice-sh.op","password":"x"}'
+
+# 7. A POST form request without crawling
+python -m nyeowsqli -u http://127.0.0.1:8080/Less-11/ --data "uname=admin&passwd=x&submit=Submit"
+
+# 8. Authorized non-local target (written permission required, interactive confirmation)
 python -m nyeowsqli -u "https://app.client-company.com/item?id=3" --scope app.client-company.com
 ```
 
@@ -262,6 +283,25 @@ python -m nyeowsqli -u "https://app.client-company.com/item?id=3" --scope app.cl
   `stopped: aborted by user`, exits with code 130.
 - **Ctrl+C twice**: exits immediately.
 - Automatic stop when `--max-requests` or `--max-time` is reached.
+
+---
+
+## Tested against
+
+NYEOWSQLiSCANNER is generic. It was tested against three different open-source,
+intentionally vulnerable applications, all running locally in Docker:
+
+| Application | Stack | How it was scanned | Result |
+|---|---|---|---|
+| [DVWA](https://github.com/digininja/DVWA) | PHP + MariaDB | `-u http://127.0.0.1:4280/ --cookie "..." --post --login-forms` | SQLi found in `sqli` (error-based), `sqli_blind` (boolean-based) and the `brute` login form (error-based). No false positives on the other pages. |
+| [sqli-labs](https://github.com/Audi-1/sqli-labs) | PHP + MySQL | Crawl with `--post --login-forms`, plus `-u ".../Less-N/?id=1" --no-crawl` for the GET lessons | Error-based, boolean-based and time-based lessons detected (e.g. Less-1 to 9, 11 to 16). Not detected, by design: header/cookie injection (18 to 22), second-order (24), filter-evasion (34, 37). |
+| [OWASP Juice Shop](https://github.com/juice-shop/juice-shop) | Node.js + SQLite (JSON API) | `--data '{"email":"...","password":"x"}'` on `/rest/user/login`; `--no-crawl` on `/rest/products/search?q=apple` | Login (JSON body) and product search both detected, error-based, DBMS fingerprinted as SQLite. |
+
+Tips for other vulnerable apps (bWAPP, Mutillidae, WebGoat, ...):
+- Log in through the browser, then pass the session with `--cookie`.
+- Use `--post --login-forms` when the vulnerable forms use POST or contain a password field.
+- For JavaScript/single-page apps, find the API request in the browser's
+  developer tools (Network tab) and test it with `-u <endpoint> --data '<body>'`.
 
 ---
 
@@ -301,9 +341,10 @@ Each guardrail exists for a specific reason:
 | **Non-local targets need `--scope` and the hostname re-typed** | A public target cannot be scanned by a typo or by copy-pasting a command. `--accept-disclaimer` cannot skip this step. |
 | **Scope check on every request and redirect** | A crawled link or a `302` redirect cannot lead the scanner out of scope. |
 | **Detection only (no UNION, no data dumping)** | The tool proves the risk without touching the data, so it is of little use to an attacker and safe for production-like targets. |
-| **`AND SLEEP()` instead of `OR SLEEP()`** | `OR SLEEP()` sleeps once per row and could freeze a large table (accidental denial of service). |
-| **Skips logout/setup/reset/delete pages and password forms** | Avoids destroying the session, resetting databases or changing passwords. |
-| **POST forms off by default** | POST requests usually change server state (create, update, purchase). |
+| **Never `OR SLEEP()`** | `OR SLEEP()` sleeps once per row: measured at 13 s for a 1 s sleep on a 13-row table, so it could freeze a large table (accidental denial of service). The tool uses `AND SLEEP()` or a subquery that sleeps exactly once and is always false, so it also returns no rows (no login bypass). |
+| **Skips logout/setup/reset/delete pages** | Avoids destroying the session or resetting databases. |
+| **Change-password and registration forms are never tested** | Forms with two password fields could change real credentials or create accounts. |
+| **Login forms and POST forms are opt-in** (`--login-forms`, `--post`) | POST requests usually change server state, and login attempts can trigger account lockouts. |
 | **Rate limit, request cap, time cap** | Prevents overloading the target. |
 | **Kill switch with partial report** | The tester can stop at any moment without losing evidence. |
 | **Audit log + honest User-Agent** | Every action is traceable, and the target's defenders can identify the traffic as a security test. |
@@ -408,15 +449,18 @@ the tool itself, contact the maintainers privately first instead of opening a pu
 
 - **Detection only**: confirms SQL injection but does not extract data. Use a dedicated
   tool under a separate authorization if exploitation is required.
-- **Injection points**: GET parameters and form fields only. Cookies, HTTP headers, JSON
-  bodies, and hidden form fields are not tested.
+- **Injection points**: GET parameters, form fields and top-level fields of a `--data`
+  body. Cookies, HTTP headers, hidden form fields and nested JSON objects are not tested.
+- **Second-order SQL injection** (stored input triggered on another page) is not detected.
 - **JavaScript-heavy apps**: the crawler reads static HTML and does not run JavaScript,
-  so single-page applications may show few or no injection points.
+  so single-page applications show few or no injection points. Test their API requests
+  with `--data` instead.
 - **Sessions**: if the session expires mid-scan (e.g. the app logs you out), later tests
   may silently see the login page. Use a fresh cookie for each scan.
 - **WAFs**: no WAF evasion or payload obfuscation. Blocked payloads produce no finding.
 - **Boolean-based detection** relies on the original value returning a result; a value
-  that matches no record (e.g. `id=99999`) makes TRUE and FALSE look the same.
+  that matches no record (e.g. `id=99999`) makes TRUE and FALSE look the same. (Time-based
+  detection covers that case for MySQL/MariaDB.)
 - **Time-based detection** can be affected by very unstable networks; the 3-step
   confirmation reduces but does not remove this.
 - **DBMS coverage**: error signatures cover MySQL/MariaDB, PostgreSQL, MSSQL, SQLite and
