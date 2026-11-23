@@ -133,10 +133,20 @@ Requirements: Python 3.10 or newer, Git, and Docker (for the test lab).
 git clone https://github.com/eruwu03/nyeow-sqli-scanner.git
 cd nyeow-sqli-scanner
 python -m venv venv
-source venv/bin/activate          # Windows: venv\Scripts\activate
+source venv/bin/activate          # see the table below for other shells
 pip install -r requirements.txt
 python -m nyeowsqli --help
 ```
+
+| Shell | Activate the virtual environment |
+|---|---|
+| bash / zsh | `source venv/bin/activate` |
+| fish | `source venv/bin/activate.fish` |
+| Windows PowerShell | `venv\Scripts\Activate.ps1` |
+| Windows cmd | `venv\Scripts\activate.bat` |
+
+Activate it again in every new terminal before running the tool, or skip activation
+and call the venv's Python directly: `./venv/bin/python -m nyeowsqli --help`.
 
 ---
 
@@ -164,6 +174,54 @@ Vulnerable pages to expect: `/vulnerabilities/sqli/` (error-based) and
 ---
 
 ## Usage
+
+### How the tool runs
+NYEOWSQLiSCANNER is a **one-shot command-line tool** (like `nmap` or `sqlmap`), not an
+interactive console like `msfconsole`. You give every option as a flag in one command;
+the tool runs the whole scan, prints the results, saves the reports and exits.
+
+What happens in one run:
+1. **Banner and legal disclaimer**: type `AGREE` (in capitals) to continue, or pass
+   `--accept-disclaimer`.
+2. **Scope check**: non-local targets are refused unless `--scope` is given and the
+   hostname is re-typed.
+3. **Crawl**: follows in-scope links and forms and lists the parameters found
+   (skipped with `--no-crawl`).
+4. **Test**: each parameter gets error-based, then boolean-based, then time-based tests;
+   hits are printed live as `VULNERABLE ...`.
+5. **Report**: a summary table is printed and the reports are saved to `output/`.
+
+### Quick start (DVWA lab)
+```bash
+# 1. activate the virtual environment (fish: source venv/bin/activate.fish)
+source venv/bin/activate
+
+# 2. log in to DVWA in your browser and copy your PHPSESSID cookie (F12 -> Storage -> Cookies)
+
+# 3. scan the whole lab
+python -m nyeowsqli -u http://127.0.0.1:4280/ --cookie "PHPSESSID=<your-id>; security=low"
+
+# 4. open the HTML report printed at the end, e.g.
+#    output/127.0.0.1_4280_<date-time>/report.html
+```
+
+> **Why `--cookie`?** DVWA pages are behind a login. Without a valid session cookie the
+> scanner only sees the login page and reports "No injectable parameters found".
+> Sessions expire, so copy a fresh cookie if results suddenly disappear.
+
+### Switching targets
+Each run scans one target. To scan something else, run the command again with a
+different `-u` (press the Up arrow to recall and edit the last command). Every run gets
+its own report folder, so results are never overwritten.
+
+| New target | What happens |
+|---|---|
+| Another page on the same host | Runs normally |
+| Another local/private host (`localhost`, `192.168.x.x`, `10.x.x.x`, `*.test`) | Runs normally; the scan is locked to that host |
+| Several lab hosts in one run | Add `--scope 192.168.56.0/24` (or a comma-separated host list) |
+| A public host | Refused unless you pass `--scope <host>` **and** re-type the hostname to confirm |
+
+### All options
 
 ```text
 python -m nyeowsqli [-u URL] [--scope SCOPE] [--cookie COOKIE] [-H 'Name: value']
@@ -194,7 +252,7 @@ python -m nyeowsqli [-u URL] [--scope SCOPE] [--cookie COOKIE] [-H 'Name: value'
 | `-o, --output` | `output` | Output folder |
 | `--format` | `json,html` | Report formats |
 
-### Examples
+### More examples
 
 ```bash
 # 1. Crawl and scan the local DVWA lab
@@ -212,7 +270,7 @@ python -m nyeowsqli -u "http://127.0.0.1:4280/vulnerabilities/sqli_blind/?id=1&S
 python -m nyeowsqli -u "http://127.0.0.1:4280/vulnerabilities/sqli/?id=1" --no-crawl --dry-run
 
 # 5. Authorized non-local target (written permission required, interactive confirmation)
-python -m nyeowsqli -u "https://staging.example.com/item?id=3" --scope staging.example.com
+python -m nyeowsqli -u "https://app.client-company.com/item?id=3" --scope app.client-company.com
 ```
 
 **Dry run**: shows the plan and request count, sends nothing:

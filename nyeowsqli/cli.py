@@ -40,7 +40,7 @@ EXAMPLES = """examples:
   python -m nyeowsqli -u "http://127.0.0.1:4280/vulnerabilities/sqli/?id=1" --dry-run
 
   # authorized non-local target (written permission required)
-  python -m nyeowsqli -u https://staging.example.com/item?id=3 --scope staging.example.com
+  python -m nyeowsqli -u https://app.client-company.com/item?id=3 --scope app.client-company.com
 
 emergency stop: press Ctrl+C once to stop and save a partial report, twice to exit immediately.
 """
