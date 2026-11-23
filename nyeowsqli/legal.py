@@ -8,11 +8,14 @@ from rich.panel import Panel
 from . import TOOL_NAME, __version__
 
 BANNER = r"""
-           ____   ___  _     _
- /\_/\    / ___| / _ \| |   (_)
-( o.o )   \___ \| | | | |   | |
- > ^ <     ___) | |_| | |___| |
-          |____/ \__\_\_____|_|
+   /\           /\
+  /  \_________/  \
+ |                 |     ____   ___  _     _
+ |    O       O    |    / ___| / _ \| |   (_)
+ |  ==    ^    ==  |    \___ \| | | | |   | |
+ |       \_/       |     ___) | |_| | |___| |
+  \               /     |____/ \__\_\_____|_|
+   `-._________.-'
 """
 
 DISCLAIMER = """[bold]LEGAL DISCLAIMER - READ BEFORE CONTINUING[/bold]
