@@ -11,7 +11,7 @@ from rich.markup import escape
 from rich.table import Table
 
 from . import TOOL_NAME, __version__
-from .crawler import Crawler, InjectionPoint, point_from_url
+from .crawler import Crawler, InjectionPoint, point_from_data, point_from_url
 from .detectors import Detector, Finding
 from .http_client import HttpClient, KillSwitch, ScanStopped, parse_headers
 from .legal import confirm_authorization, show_banner
@@ -35,6 +35,13 @@ EXAMPLES = """examples:
 
   # only error-based and boolean techniques, slower rate
   python -m nyeowsqli -u http://127.0.0.1:4280/ --techniques error,boolean --delay 1
+
+  # crawl everything, including POST forms and login forms
+  python -m nyeowsqli -u http://127.0.0.1:8080/ --post --login-forms
+
+  # a JSON API endpoint (single-page apps such as OWASP Juice Shop)
+  python -m nyeowsqli -u http://127.0.0.1:3000/rest/user/login \\
+      --data '{"email":"test@juice-sh.op","password":"x"}'
 
   # preview what would be tested, without sending any request
   python -m nyeowsqli -u "http://127.0.0.1:4280/vulnerabilities/sqli/?id=1" --dry-run
@@ -77,6 +84,12 @@ def build_parser() -> argparse.ArgumentParser:
     crawl.add_argument("--no-crawl", action="store_true", help="only test the start URL")
     crawl.add_argument("--post", action="store_true",
                        help="also test POST forms (off by default: POST often changes server state)")
+    crawl.add_argument("--login-forms", action="store_true",
+                       help="also test login forms (one password field); change-password and "
+                            "registration forms are never tested")
+    crawl.add_argument("--data", metavar="BODY",
+                       help="test one POST request with this body instead of crawling: "
+                            "form 'user=a&pass=b' or JSON '{\"email\":\"a\",\"password\":\"b\"}'")
     crawl.add_argument("--exclude", action="append", default=[], metavar="REGEX",
                        help="skip URLs matching this regex (repeatable; logout/setup/reset/delete "
                             "pages are always skipped)")
@@ -121,6 +134,7 @@ def validate_args(parser: argparse.ArgumentParser, args) -> None:
         parser.error("--time-delay must be between 1 and 30 seconds")
     try:
         args.headers = parse_headers(args.header)
+        args.manual_point = point_from_data(args.url, args.data) if args.data else None
     except ValueError as exc:
         parser.error(str(exc))
     args.formats = [f.strip().lower() for f in args.format.split(",") if f.strip()]
@@ -165,9 +179,18 @@ def make_run_dir(base: str, url: str) -> Path:
     """output/<host>_<port>_<timestamp>/ - one clearly labelled folder per scan."""
     parsed = urlparse(url)
     label = f"{parsed.hostname}_{parsed.port or parsed.scheme}"
-    run_dir = Path(base) / f"{label}_{datetime.now():%Y%m%d-%H%M%S}"
-    run_dir.mkdir(parents=True, exist_ok=True)
+    stamp = f"{label}_{datetime.now():%Y%m%d-%H%M%S}"
+    run_dir, n = Path(base) / stamp, 1
+    while run_dir.exists():  # two scans in the same second never share a folder
+        n += 1
+        run_dir = Path(base) / f"{stamp}_{n}"
+    run_dir.mkdir(parents=True)
     return run_dir
+
+
+def start_point(args) -> InjectionPoint | None:
+    """The injection point given directly on the command line (--data or URL query)."""
+    return args.manual_point or point_from_url(args.url)
 
 
 def run_scan(console: Console, args, scope: Scope) -> int:
@@ -215,13 +238,13 @@ def finish_scan(console, args, client, kill, result: ScanResult, run_dir: Path) 
 
 def discover(console: Console, args, client: HttpClient):
     """Returns (injection points, skipped-for-safety notes, target reachable?)."""
-    if args.no_crawl:
-        point = point_from_url(args.url)
+    if args.no_crawl or args.manual_point:  # --data always means "test just this request"
+        point = start_point(args)
         reachable = client.send("GET", args.url).status != 0
         return ([point] if point else []), [], reachable
     console.print(f"[bold]Crawling[/bold] (depth {args.depth})...")
     crawler = Crawler(client, max_depth=args.depth, include_post=args.post,
-                      extra_excludes=args.exclude,
+                      login_forms=args.login_forms, extra_excludes=args.exclude,
                       log=lambda msg: console.print(f"  [dim]{msg}[/dim]") if args.verbose else None)
     points = crawler.crawl(args.url)
     return points, crawler.skipped, crawler.pages_fetched > 0
@@ -272,12 +295,12 @@ def show_summary(console: Console, result: ScanResult, run_dir: Path, reports: l
 def show_dry_run(console: Console, args) -> None:
     """Explain what a real run would do, WITHOUT sending a single request."""
     console.print("[bold yellow]DRY RUN - no requests will be sent.[/bold yellow]")
-    point = point_from_url(args.url)
-    if not args.no_crawl:
+    point = start_point(args)
+    if not (args.no_crawl or args.manual_point):
         console.print("  Crawling is skipped in dry-run (it needs requests); a real run would "
                       f"crawl to depth {args.depth} and stay inside the scope.")
     if not point:
-        console.print("  The start URL has no query parameters to plan payloads for.")
+        console.print("  The start URL has no query parameters (or --data) to plan payloads for.")
         return
     per_param = {
         "error": len(ERROR_PAYLOADS),

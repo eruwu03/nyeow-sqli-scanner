@@ -3,11 +3,14 @@
 Safety rules applied while crawling:
   * only in-scope http(s) URLs are visited (enforced again by HttpClient),
   * pages that are dangerous to touch (logout, setup, reset, delete...) are skipped,
-  * forms with password fields are skipped (login / change-password forms),
+  * forms with password fields are skipped unless --login-forms is given, and
+    forms with two or more password fields (change-password / registration)
+    are ALWAYS skipped, because submitting them could change real credentials,
   * POST forms are only tested when --post is given, because POST usually
     changes server-side state.
 """
 
+import json
 import re
 from collections import deque
 from dataclasses import dataclass, field
@@ -30,9 +33,10 @@ class InjectionPoint:
     method: str             # "GET" or "POST"
     url: str                # URL without query string
     params: dict[str, str]  # all parameters with their original values
-    source: str             # "link" or "form"
+    source: str             # "link", "form" or "manual" (--data)
     found_on: str = ""      # page where it was discovered
     skip_params: set[str] = field(default_factory=set)  # e.g. submit buttons
+    body: str = "form"      # POST body encoding: "form" or "json"
 
     @property
     def key(self) -> tuple:
@@ -47,7 +51,9 @@ class InjectionPoint:
         """Build send() keyword arguments with `param` set to `value`."""
         values = dict(self.params)
         values[param] = value
-        return {"params": values} if self.method == "GET" else {"data": values}
+        if self.method == "GET":
+            return {"params": values}
+        return {"json": values} if self.body == "json" else {"data": values}
 
     def describe(self) -> str:
         return f"{self.method} {self.url} [{', '.join(self.testable_params)}]"
@@ -56,6 +62,25 @@ class InjectionPoint:
 def strip_query(url: str) -> str:
     parsed = urlparse(url)
     return urlunparse(parsed._replace(query="", fragment=""))
+
+
+def point_from_data(url: str, raw: str) -> InjectionPoint:
+    """Build a POST injection point from --data: JSON object or form string (a=1&b=2)."""
+    raw = raw.strip()
+    if raw.startswith("{"):
+        try:
+            obj = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"--data is not valid JSON: {exc}") from exc
+        # Only top-level text/number fields can be injected; nested objects are left out.
+        params = {k: str(v) for k, v in obj.items() if isinstance(v, (str, int, float))}
+        body = "json"
+    else:
+        params = dict(parse_qsl(raw, keep_blank_values=True))
+        body = "form"
+    if not params:
+        raise ValueError("--data has no fields to test")
+    return InjectionPoint("POST", url, params, "manual", body=body)
 
 
 def point_from_url(url: str, found_on: str = "") -> InjectionPoint | None:
@@ -67,10 +92,11 @@ def point_from_url(url: str, found_on: str = "") -> InjectionPoint | None:
 
 class Crawler:
     def __init__(self, client: HttpClient, *, max_depth: int = 2, include_post: bool = False,
-                 extra_excludes=None, log=None):
+                 login_forms: bool = False, extra_excludes=None, log=None):
         self.client = client
         self.max_depth = max_depth
         self.include_post = include_post
+        self.login_forms = login_forms
         self.excludes = [re.compile(p, re.I) for p in DEFAULT_EXCLUDES + list(extra_excludes or [])]
         self.log = log or (lambda msg: None)
         self.skipped: list[str] = []  # human-readable reasons, shown in the report
@@ -116,13 +142,24 @@ class Crawler:
 
             if depth >= self.max_depth:
                 continue
-            for tag in soup.find_all("a", href=True):
-                link = urldefrag(urljoin(resp.url, tag["href"]))[0]
+            for link in self.extract_links(soup, resp.url):
                 if link in seen or not self.should_visit(link):
                     continue
                 add(point_from_url(link, found_on=resp.url))
                 queue.append((link, depth + 1))
         return list(points.values())
+
+    @staticmethod
+    def extract_links(soup, page_url: str) -> list[str]:
+        """Links from <a>/<area> (href) and <frame>/<iframe> (src), made absolute."""
+        raw = [tag["href"] for tag in soup.find_all(["a", "area"], href=True)]
+        raw += [tag["src"] for tag in soup.find_all(["frame", "iframe"], src=True)]
+        links = []
+        for value in raw:
+            link = urldefrag(urljoin(page_url, value.strip()))[0]
+            if link not in links:
+                links.append(link)
+        return links
 
     def parse_form(self, form, page_url: str) -> InjectionPoint | None:
         action = urljoin(page_url, form.get("action") or page_url)
@@ -131,8 +168,13 @@ class Crawler:
             return None
         if not self.client.scope.allows_url(action) or self.is_excluded(action):
             return None
-        if form.find("input", attrs={"type": re.compile("^password$", re.I)}):
-            self.skipped.append(f"{method} {strip_query(action)}: form has a password field")
+        password_fields = form.find_all("input", attrs={"type": re.compile("^password$", re.I)})
+        if len(password_fields) >= 2:
+            self.skipped.append(f"{method} {strip_query(action)}: change-password/registration "
+                                f"form (never tested)")
+            return None
+        if password_fields and not self.login_forms:
+            self.skipped.append(f"{method} {strip_query(action)}: login form needs --login-forms")
             return None
         if method == "POST" and not self.include_post:
             self.skipped.append(f"POST {strip_query(action)}: POST forms need --post")

@@ -147,7 +147,7 @@ class HttpClient:
         if self.on_request:
             self.on_request(line)
 
-    def send(self, method: str, url: str, *, params=None, data=None,
+    def send(self, method: str, url: str, *, params=None, data=None, json=None,
              follow_redirects: bool = False) -> Response:
         """Send one request (plus in-scope redirects if asked). Raises ScanStopped/OutOfScope."""
         for _ in range(self.MAX_REDIRECTS + 1):
@@ -160,7 +160,7 @@ class HttpClient:
             self._last_sent = time.monotonic()
             start = time.monotonic()
             try:
-                resp = self.session.request(method, url, params=params, data=data,
+                resp = self.session.request(method, url, params=params, data=data, json=json,
                                             cookies=self._fixed_cookies, timeout=self.timeout,
                                             allow_redirects=False)
             except requests.Timeout:
@@ -176,7 +176,7 @@ class HttpClient:
             self._log(method, resp.url, resp.status_code, elapsed)
             location = resp.headers.get("Location")
             if follow_redirects and resp.is_redirect and location:
-                url, method, params, data = urljoin(resp.url, location), "GET", None, None
+                url, method, params, data, json = urljoin(resp.url, location), "GET", None, None, None
                 continue
             return Response(resp.url, resp.status_code, resp.text, elapsed)
         return Response(url, 0, "", 0.0)
