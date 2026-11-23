@@ -74,6 +74,7 @@ class Crawler:
         self.excludes = [re.compile(p, re.I) for p in DEFAULT_EXCLUDES + list(extra_excludes or [])]
         self.log = log or (lambda msg: None)
         self.skipped: list[str] = []  # human-readable reasons, shown in the report
+        self.pages_fetched = 0
 
     def is_excluded(self, url: str) -> bool:
         return any(rx.search(url) for rx in self.excludes)
@@ -107,6 +108,7 @@ class Crawler:
                 continue
             if resp.status == 0 or not resp.text:
                 continue
+            self.pages_fetched += 1
             soup = BeautifulSoup(resp.text, "html.parser")
 
             for form in soup.find_all("form"):

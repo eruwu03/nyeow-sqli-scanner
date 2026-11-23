@@ -183,7 +183,11 @@ def run_scan(console: Console, args, scope: Scope) -> int:
                         on_request=verbose)
     result = ScanResult(target=args.url, scope=scope.describe(), techniques=args.techniques)
     try:
-        result.points, result.skipped = discover(console, args, client)
+        result.points, result.skipped, reachable = discover(console, args, client)
+        if not reachable:
+            console.print(f"[red]Could not reach {escape(args.url)} - is the lab running?[/red]")
+            result.status = "failed: target unreachable"
+            return finish_scan(console, args, client, kill, result, run_dir)
         show_points(console, result.points)
         scanner = Scanner(client, Detector(client, time_delay=args.time_delay), args.techniques,
                           on_finding=lambda f: print_finding(console, f),
@@ -193,26 +197,34 @@ def run_scan(console: Console, args, scope: Scope) -> int:
         result.status = f"stopped: {stop}"
     except KeyboardInterrupt:
         result.status = "stopped: hard abort (second Ctrl+C)"
-    finally:
-        kill.uninstall()
-        client.close()
-        result.finished = result.finished or datetime.now()
-        result.requests_sent = client.requests_sent
-    # Always runs - including after Ctrl+C - so a partial scan still leaves a report.
+    return finish_scan(console, args, client, kill, result, run_dir)
+
+
+def finish_scan(console, args, client, kill, result: ScanResult, run_dir: Path) -> int:
+    """Always runs - including after Ctrl+C - so a partial scan still leaves a report."""
+    kill.uninstall()
+    client.close()
+    result.finished = result.finished or datetime.now()
+    result.requests_sent = client.requests_sent
     reports = write_reports(result, run_dir, args.formats)
     show_summary(console, result, run_dir, reports)
-    return 130 if "Ctrl+C" in result.status else 0
+    if "Ctrl+C" in result.status:
+        return 130
+    return 1 if result.status.startswith("failed") else 0
 
 
-def discover(console: Console, args, client: HttpClient) -> tuple[list[InjectionPoint], list[str]]:
+def discover(console: Console, args, client: HttpClient):
+    """Returns (injection points, skipped-for-safety notes, target reachable?)."""
     if args.no_crawl:
         point = point_from_url(args.url)
-        return ([point] if point else []), []
+        reachable = client.send("GET", args.url).status != 0
+        return ([point] if point else []), [], reachable
     console.print(f"[bold]Crawling[/bold] (depth {args.depth})...")
     crawler = Crawler(client, max_depth=args.depth, include_post=args.post,
                       extra_excludes=args.exclude,
                       log=lambda msg: console.print(f"  [dim]{msg}[/dim]") if args.verbose else None)
-    return crawler.crawl(args.url), crawler.skipped
+    points = crawler.crawl(args.url)
+    return points, crawler.skipped, crawler.pages_fetched > 0
 
 
 def show_points(console: Console, points: list[InjectionPoint]) -> None:
@@ -239,7 +251,7 @@ def print_finding(console: Console, finding: Finding) -> None:
 
 
 def show_summary(console: Console, result: ScanResult, run_dir: Path, reports: list[Path]) -> None:
-    colour = "green" if result.status == "completed" else "yellow"
+    colour = {"completed": "green", "failed": "red"}.get(result.status.split(":")[0], "yellow")
     console.print(f"\n[bold]Scan {result.status}[/bold]", style=colour)
     console.print(f"  {len(result.points)} endpoint(s), {result.params_tested} parameter(s) tested, "
                   f"{result.requests_sent} request(s), {result.duration:.1f}s")
