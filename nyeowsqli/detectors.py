@@ -14,7 +14,7 @@ from dataclasses import asdict, dataclass
 
 from .crawler import InjectionPoint
 from .http_client import HttpClient, Response
-from .payloads import BOOLEAN_PAIRS, COMPILED_SIGNATURES, ERROR_PAYLOADS
+from .payloads import BOOLEAN_PAIRS, COMPILED_SIGNATURES, ERROR_PAYLOADS, TIME_PAYLOADS
 
 TAG_RE = re.compile(r"<[^>]+>")
 # Minimum difference between TRUE and FALSE responses (0-1 scale). The real
@@ -137,6 +137,40 @@ class Detector:
                   f"HTTP {true_resp.status}); FALSE condition differed (similarity "
                   f"{false_sim:.2f}, HTTP {false_resp.status}); confirmed twice")
         return true_payload, false_payload, detail
+
+    # ------------------------------------------------ time-based blind
+    def time_based(self, point: InjectionPoint, param: str, base: Baseline) -> Finding | None:
+        """Ask the database to sleep and measure the response time.
+
+        Three-step check to rule out a slow network or busy server:
+          1. SLEEP(d)  -> response must take at least baseline + 80% of d
+          2. SLEEP(0)  -> same payload without delay must be fast again
+          3. SLEEP(d)  -> delay must repeat
+        """
+        original = point.params[param]
+        delay = self.time_delay
+        base_time = base.response.elapsed
+        for dbms, template in TIME_PAYLOADS:
+            slow_payload = original + template.format(d=delay)
+            first = self._send(point, param, slow_payload)
+            if not self._is_delayed(first, base_time, delay):
+                continue
+            fast = self._send(point, param, original + template.format(d=0))
+            if self._is_delayed(fast, base_time, delay / 2):
+                continue  # still slow without SLEEP: server is just slow
+            again = self._send(point, param, slow_payload)
+            if not self._is_delayed(again, base_time, delay):
+                continue
+            evidence = (f"SLEEP({delay}) took {first.elapsed:.1f}s and {again.elapsed:.1f}s; "
+                        f"SLEEP(0) took {fast.elapsed:.1f}s; baseline {base_time:.2f}s")
+            return self._finding("time-based blind", point, param, slow_payload, dbms,
+                                 "high" if not (first.timed_out or again.timed_out) else "medium",
+                                 evidence)
+        return None
+
+    @staticmethod
+    def _is_delayed(resp: Response, base_time: float, delay: float) -> bool:
+        return resp.timed_out or resp.elapsed >= base_time + delay * 0.8
 
 
 def normalize(text: str, payload: str = "") -> str:

