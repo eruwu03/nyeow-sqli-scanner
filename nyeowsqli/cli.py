@@ -1,11 +1,14 @@
 """Command-line entry point for NYEOWSQLiSCANNER."""
 
 import argparse
+import sys
+from urllib.parse import urlparse
 
 from rich.console import Console
 
 from . import TOOL_NAME, __version__
 from .legal import confirm_authorization, show_banner
+from .scope import Scope, ScopeError, build_scope, resolve_warning
 
 # Safe default: the local DVWA lab (official docker-compose publishes it on 4280).
 DEFAULT_TARGET = "http://127.0.0.1:4280/"
@@ -101,8 +104,45 @@ def main(argv=None) -> int:
     console = Console(no_color=args.no_color, highlight=False)
     show_banner(console)
 
+    try:
+        scope = build_scope(args.url, args.scope)
+    except ScopeError as exc:
+        console.print(f"[red]Scope error:[/red] {exc}")
+        return 2
+
     if not confirm_authorization(console, args.accept_disclaimer):
         console.print("[red]Authorization not confirmed. Exiting without sending any request.[/red]")
         return 2
+    if not confirm_non_lab_scope(console, scope, args.url):
+        console.print("[red]Non-local scope not confirmed. Exiting.[/red]")
+        return 2
+
     console.print(f"[green]Target:[/green] {args.url}")
+    console.print(f"[green]Scope :[/green] {scope.describe()}")
     return 0
+
+
+def confirm_non_lab_scope(console: Console, scope: Scope, url: str) -> bool:
+    """Second, stronger confirmation when the scope leaves the local lab.
+
+    The user must re-type the target hostname. This cannot be skipped with
+    --accept-disclaimer, so a non-local scan can never start by accident.
+    """
+    host = urlparse(url).hostname or ""
+    if not scope.explicit:
+        warning = resolve_warning(host)
+        if warning:
+            console.print(f"[yellow]Note:[/yellow] {warning}")
+        return True
+    outside = scope.non_lab_entries()
+    if not outside:
+        return True
+    console.print(f"[bold yellow]Scope includes NON-LOCAL targets:[/bold yellow] {', '.join(outside)}")
+    if not sys.stdin.isatty():
+        console.print("[red]Non-local scans require interactive confirmation.[/red]")
+        return False
+    try:
+        typed = input(f"Re-type the target host '{host}' to confirm written authorization: ")
+    except (EOFError, KeyboardInterrupt):
+        return False
+    return typed.strip().lower() == host.lower()
