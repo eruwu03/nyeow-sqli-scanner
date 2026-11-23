@@ -25,15 +25,14 @@ fingerprints the database, **without extracting, modifying or deleting any data*
 2. [How it works](#how-it-works)
 3. [Attack lifecycle mapping](#attack-lifecycle-mapping)
 4. [Installation](#installation)
-5. [Setting up the test lab (DVWA)](#setting-up-the-test-lab-dvwa)
-6. [Usage](#usage)
-7. [Output and data handling](#output-and-data-handling)
-8. [Ethical considerations](#ethical-considerations)
-9. [Rules of Engagement (RoE)](#rules-of-engagement-roe)
-10. [Responsible disclosure](#responsible-disclosure)
-11. [Legal disclaimer](#legal-disclaimer)
-12. [Limitations](#limitations)
-13. [Project structure](#project-structure)
+5. [Usage](#usage)
+6. [Output and data handling](#output-and-data-handling)
+7. [Ethical considerations](#ethical-considerations)
+8. [Rules of Engagement (RoE)](#rules-of-engagement-roe)
+9. [Responsible disclosure](#responsible-disclosure)
+10. [Legal disclaimer](#legal-disclaimer)
+11. [Limitations](#limitations)
+12. [Project structure](#project-structure)
 
 ---
 
@@ -127,7 +126,7 @@ Each module has one job:
 
 ## Installation
 
-Requirements: Python 3.10 or newer, Git, and Docker (for the test lab).
+Requirements: Python 3.10 or newer and Git.
 
 ```bash
 git clone https://github.com/eruwu03/nyeow-sqli-scanner.git
@@ -147,29 +146,6 @@ python -m nyeowsqli --help
 
 Activate it again in every new terminal before running the tool, or skip activation
 and call the venv's Python directly: `./venv/bin/python -m nyeowsqli --help`.
-
----
-
-## Setting up the test lab (DVWA)
-
-Only scan your own lab. The official DVWA Docker setup listens on `127.0.0.1:4280`,
-so pass `-u http://127.0.0.1:4280/` (the tool's default is `http://127.0.0.1/`, port 80).
-
-```bash
-git clone https://github.com/digininja/DVWA.git
-cd DVWA
-docker compose up -d
-```
-
-1. Open <http://127.0.0.1:4280>, click **Create / Reset Database**, then log in with
-   `admin` / `password`.
-2. Open your browser's developer tools (F12) → Storage/Application → Cookies and copy the
-   `PHPSESSID` value.
-3. Pass it to the scanner together with the security level:
-   `--cookie "PHPSESSID=<value>; security=low"`.
-
-Vulnerable pages to expect: `/vulnerabilities/sqli/` (error-based) and
-`/vulnerabilities/sqli_blind/` (boolean and time-based).
 
 ---
 
